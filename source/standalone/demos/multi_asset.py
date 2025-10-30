@@ -23,7 +23,7 @@ from omni.isaac.lab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Demo on spawning different objects in multiple environments.")
-parser.add_argument("--num_envs", type=int, default=512, help="Number of environments to spawn.")
+parser.add_argument("--num_envs", type=int, default=10, help="Number of environments to spawn.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -236,6 +236,13 @@ def run_simulator(sim: SimulationContext, scene: InteractiveScene):
         if count % 250 == 0:
             # reset counter
             count = 0
+            with Timer("[INFO] Time to randomize scene: "):
+                # DO YOUR OWN OTHER KIND OF RANDOMIZATION HERE!
+                # Note: Just need to acquire the right attribute about the property you want to set
+                # Here is an example on setting color randomly
+                scene_cfg = MultiObjectSceneCfg(num_envs=5, env_spacing=2.0, replicate_physics=False)
+                scene.cfg = scene_cfg
+                # randomize_shape_color(scene_cfg.object.prim_path)
             # reset the scene entities
             # object
             root_state = rigid_object.data.default_root_state.clone()

@@ -14,6 +14,13 @@
 **/*.usdc
 **/*.usdz
 
+.vscode/
+.marscode/
+.github/
+.aws/
+
+**/*.pth
+
 # Python
 .DS_Store
 **/*.egg-info/
@@ -53,7 +60,14 @@ _repo
 _build
 .lastformat
 
+*.txt
+*.png
+
 # RL-Games
 **/runs/*
 **/logs/*
 **/recordings/*
+
+250902-screwdriver-sim-m/**
+250902-screwdriver-sim-s/**
+
