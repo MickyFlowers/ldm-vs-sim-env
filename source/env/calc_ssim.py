@@ -87,7 +87,7 @@ if __name__ == "__main__":
     model = instantiate_from_config(config.model)
     model.load_state_dict(
         torch.load(
-            "/home/cyx/project/latent-diffusion/logs/screwdriver-sim-m/epoch=000632.ckpt"
+            "/home/cyx/project/latent-diffusion/logs/screwdriver-sim-m/epoch=000012.ckpt"
         )["state_dict"],
         strict=True,
     )

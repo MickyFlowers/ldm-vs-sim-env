@@ -1,12 +1,11 @@
 import argparse
 
-from omni.isaac.lab.app import AppLauncher
 from xlib.device.sensor.camera import Camera
 
+from omni.isaac.lab.app import AppLauncher
+
 parser = argparse.ArgumentParser(description="Visual Servo Env")
-parser.add_argument(
-    "--num_envs", type=int, default=1, help="Number of environments to spawn."
-)
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to spawn.")
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli = parser.parse_args()  # launch omniverse app
@@ -15,23 +14,27 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import sys
+
 from xlib.algo.vs.vs_controller.ibvs import IBVS, CNSv2
 
 sys.path.append(".")
 sys.path.append("/home/cyx/project/latent-diffusion/")
+import numpy as np
+import os
+import torch
+from scipy.spatial.transform import Rotation as R
+
+import cv2
+from ldm.models.diffusion.ddim import DDIMSampler
+from ldm.util import instantiate_from_config
+from omegaconf import OmegaConf
+from xlib.algo.utils.metric import calc_ssim
+from xlib.algo.vs.kp_matcher import RomaMatchAlgo
+
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.scene import InteractiveScene
-from source.env.vs_scene import SceneCfg
 from source.env.env import env
-from omegaconf import OmegaConf
-from ldm.util import instantiate_from_config
-from ldm.models.diffusion.ddim import DDIMSampler
-from xlib.algo.vs.kp_matcher import RomaMatchAlgo
-from xlib.algo.utils.metric import calc_ssim
-import numpy as np
-import torch
-import cv2
-from scipy.spatial.transform import Rotation as R
+from source.env.vs_scene import SceneCfg
 
 
 def transform(img, device):
@@ -85,14 +88,10 @@ if __name__ == "__main__":
     )
     model = instantiate_from_config(config.model)
     model.load_state_dict(
-        torch.load(
-            "/home/cyx/project/latent-diffusion/logs/screwdriver-sim-m/epoch=000632.ckpt"
-        )["state_dict"],
+        torch.load("/home/cyx/project/latent-diffusion/logs/screwdriver-sim-m/epoch=000012.ckpt")["state_dict"],
         strict=True,
     )
-    device = (
-        torch.device("cuda:1") if torch.cuda.is_available() else torch.device("cpu")
-    )
+    device = torch.device("cuda:1") if torch.cuda.is_available() else torch.device("cpu")
     model = model.to(device)
     sampler = DDIMSampler(model)
     sim_cfg = sim_utils.SimulationCfg(
@@ -105,18 +104,28 @@ if __name__ == "__main__":
     sim.set_render_mode(mode=sim_utils.SimulationContext.RenderMode.FULL_RENDERING)
     # Set main camera
     sim.set_camera_view(eye=[3.5, 3.5, 3.5], target=[0.0, 0.0, 0.0])
-    scene_cfg = SceneCfg(
-        num_envs=args_cli.num_envs, env_spacing=2.0, lazy_sensor_update=False
-    )
+    scene_cfg = SceneCfg(num_envs=args_cli.num_envs, env_spacing=2.0, lazy_sensor_update=False)
     scene = InteractiveScene(scene_cfg)
     sim.reset()
     vs_env = env(sim=sim, scene=scene)
     vs_env.reset(fixed_tool=True)
-    average_rot_err = 0.45378076262901185
-    average_pos_err = 0.041396105429157615
-    average_time_step = 4641
-    total_count = 7
-    success_count = 7
+    if os.path.exists("./log.txt"):
+        with open(f"./log.txt", "r") as f:
+            last_line = f.readlines()[-1]
+            parts = last_line.strip().split(",")
+            total_count = int(parts[0])
+            success_count = int(float(parts[1]) * total_count)
+            average_rot_err = float(parts[2]) * success_count
+            average_pos_err = float(parts[3]) * success_count
+            average_time_step = float(parts[4]) * success_count
+            print(f"Resuming from total count: {total_count}, success count: {success_count}")
+    else:
+
+        average_rot_err = 0
+        average_pos_err = 0
+        average_time_step = 0
+        total_count = 0
+        success_count = 0
     while simulation_app.is_running():
         # print(vs_env.sim_step)
         if vs_env.sim_step >= 10:
@@ -126,9 +135,7 @@ if __name__ == "__main__":
                 obs = vs_env.get_observation()
                 ref_color_image = obs["color_img"].cpu().numpy()[0]
                 ref_color_image = cv2.cvtColor(ref_color_image, cv2.COLOR_RGB2BGR)
-                ref_color_image = cv2.resize(
-                    ref_color_image, (0, 0), fx=scale, fy=scale
-                )
+                ref_color_image = cv2.resize(ref_color_image, (0, 0), fx=scale, fy=scale)
                 ref_depth = obs["depth"].cpu().numpy()[0]
                 ref_depth = cv2.resize(ref_depth, (0, 0), fx=scale, fy=scale)
                 # cv2.imshow("ref_depth", ref_depth)
@@ -146,12 +153,8 @@ if __name__ == "__main__":
 
                 cur_seg_mask = obs["mask"].cpu().numpy()[0]
                 cur_seg_image = np.zeros_like(cur_color_image)
-                cur_seg_image[cur_seg_mask == True] = cur_color_image[
-                    cur_seg_mask == True
-                ]
-                cur_color_image = cv2.resize(
-                    cur_color_image, (0, 0), fx=scale, fy=scale
-                )
+                cur_seg_image[cur_seg_mask == True] = cur_color_image[cur_seg_mask == True]
+                cur_color_image = cv2.resize(cur_color_image, (0, 0), fx=scale, fy=scale)
                 cur_seg_image = cv2.resize(cur_seg_image, (0, 0), fx=scale, fy=scale)
                 # cv2.imshow("cur_color_image", cur_color_image)
                 # cv2.imshow("cur_seg_image", cur_seg_image)
@@ -174,21 +177,13 @@ if __name__ == "__main__":
                             x_T=torch.zeros((c.shape[0], *shape), device=device),
                         )
                         x_sample = model.first_stage_model.decode(sample)
-                        reference_image = torch.clamp(
-                            (x_sample + 1.0) / 2.0, min=0.0, max=1.0
-                        )
-                        reference_image = (
-                            reference_image.cpu().numpy().transpose(0, 2, 3, 1)[0] * 255
-                        )
-                        reference_image = cv2.cvtColor(
-                            reference_image, cv2.COLOR_RGB2BGR
-                        ).astype(np.uint8)
+                        reference_image = torch.clamp((x_sample + 1.0) / 2.0, min=0.0, max=1.0)
+                        reference_image = reference_image.cpu().numpy().transpose(0, 2, 3, 1)[0] * 255
+                        reference_image = cv2.cvtColor(reference_image, cv2.COLOR_RGB2BGR).astype(np.uint8)
 
-                        reference_image = cv2.resize(
-                            reference_image, (0, 0), fx=1.0 / scale, fy=1.0 / scale
-                        )
+                        reference_image = cv2.resize(reference_image, (0, 0), fx=1.0 / scale, fy=1.0 / scale)
 
-            elif vs_env.sim_step < 1500:
+            elif vs_env.sim_step < 300:
                 vs_env.step()
                 obs = vs_env.get_observation()
                 tool_cur_pose = vs_env.tool_pose_trans_matrix[0].cpu().numpy()
@@ -223,7 +218,7 @@ if __name__ == "__main__":
                 # print(score)
                 if score is not None and score > 0.90:
                     count += 1
-                    if count > 60:
+                    if count > 10:
                         rot_err, pos_err = calc_err(tool_cur_pose, tool_target_pose)
                         average_rot_err += rot_err
                         average_pos_err += pos_err
@@ -243,7 +238,7 @@ if __name__ == "__main__":
                 else:
                     count = 0
                 if vel is not None:
-                    vel = vel * 0.5
+                    vel = vel * 10
                     vs_env.apply_action(torch.tensor(vel, device=device).unsqueeze(0))
 
                 # if match_img is not None:

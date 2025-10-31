@@ -199,7 +199,7 @@ if __name__ == "__main__":
                             reference_image, cv2.COLOR_RGB2BGR
                         ).astype(np.uint8)
 
-            elif vs_env.sim_step < 1500:
+            elif vs_env.sim_step < 300:
                 vs_env.step()
                 obs = vs_env.get_observation()
                 tool_cur_pose = vs_env.tool_pose_trans_matrix[0].cpu().numpy()
